@@ -1,0 +1,2 @@
+# AstroX
+A TradingView indicator
