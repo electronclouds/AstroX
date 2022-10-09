@@ -1,0 +1,97 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © universaldelusions
+// Range filter settings: 
+// 4h = 80/16
+// 3h = 60/12
+// 2h = 40/8
+// 1h = 20/4
+// 45m = 15/3
+// 30m = 10/2
+// 15m = 5/1
+//@version=4
+study(title = "AstroX", shorttitle = "AX", overlay = true)
+
+//=====INPUTS=====
+Flen = input(10, "Range", minval=1)
+src2 = input(hl2, title="Source2")
+rng_src = input(defval=close, type=input.source, title="Swing Source")
+rng_per = input(defval=5, minval=1, type=input.integer, title="Swing Period")
+rng_qty   = input(defval=1, minval=0.0000001, title="Swing Multiplier")
+bol_len = input(20, minval=1, title = "Bollinger Length")
+bol_mult = input(2.0, minval=0.001, maxval=50, title="Bollinger Multiplier")
+bol_src = close
+
+//=====DECLARTIONS=====
+var bool fishbuy = na
+var bool fishsell = na
+var bool combbuy = na
+var bool combsell = na
+
+//=====FUNCTIONS=====
+fisher_transform(Flen, src2) =>   //Fisher Transform
+    var float N1 = 0
+    var float NF = 0
+    HMX = highest(src2, Flen)
+    LMN = lowest(src2, Flen)
+ 
+    N1 := (0.66 * ((src2 - LMN) / (HMX - LMN) - 0.5) + (0.67 * nz(N1[1])))
+    N2 = iff(N1 > 0.99, 0.999,
+               iff(N1 < -0.99, -0.999, N1))
+
+    NF := (0.5 * log((1 + N2) / (1 - N2)) + (0.5 * nz(NF[1])))
+    NF
+
+rng_size(x, qty, n)=> 
+    wper      = (n*2) - 1
+    avrng     = ema(abs(x - x[1]), n)
+    AC = ema(avrng, wper)*qty
+    rng_size = AC
+
+rng_filt(x, rng_, n)=>
+    r          = rng_
+    var rfilt  = array.new_float(2, x)
+    array.set(rfilt, 1, array.get(rfilt, 0))
+    if x - r > array.get(rfilt, 1)
+        array.set(rfilt, 0, x - r)
+    if x + r < array.get(rfilt, 1)
+        array.set(rfilt, 0, x + r)
+    rng_filt1 = array.get(rfilt, 0)
+    
+    rng_filt  = rng_filt1
+    rng_filt
+    
+boll_bands(bol_src, bol_len, bol_mult) =>
+    basis = sma(bol_src, bol_len)
+    dev = bol_mult * stdev(bol_src, bol_len)
+    top = basis + dev
+    bottom = basis - dev
+    [basis, top, bottom]
+
+//=====FUNCTION CALLS=====    
+[signal, up, down] = boll_bands(bol_src, bol_len, bol_mult)
+Fish = fisher_transform(Flen, src2)
+F_Signal = nz(Fish[1])
+
+filt = rng_filt(rng_src, rng_size(rng_src, rng_qty, rng_per), rng_per)
+
+//=====SIGNAL CONDITIONS=====
+var fdir = 0.0
+fdir    := filt > filt[1] ? 1 : filt < filt[1] ? -1 : fdir
+upward   = fdir==1 ? 1 : 0
+downward = fdir==-1 ? 1 : 0
+
+fishbuy := crossover(Fish, F_Signal) and (filt <= filt[1])
+fishsell := crossunder(Fish, F_Signal) and (filt >= filt[1])
+combbuy := crossover(Fish, F_Signal) and (filt >= filt[1])
+combsell := crossunder(Fish, F_Signal) and (filt <= filt[1])
+
+//=====PLOTS=====
+barcolor(fishbuy == true ? color.yellow : (fishsell == true ? color.black : na), title = "Buy/Sell Signals")
+barcolor(combbuy == true ? color.purple : (combsell == true ? color.blue : na), title = "High Confidence Buy/Sell Signals")
+
+filt_color = upward ? #05ff9b : downward ? #ff0583 : #cccccc
+filt_plot = plot(filt, color=color.new(filt_color, 10), linewidth=3, title="Filter")
+
+plot(signal, "Basis", color=#872323, linewidth = 2)
+plot(up, "Upper", color=color.blue, linewidth = 2)
+plot(down, "Lower", color=color.blue, linewidth = 2)
